@@ -5,6 +5,7 @@ description = "Pull recent email from your Gmail accounts, triage it with Claude
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.92.0",
+    "pydantic>=2",
     "google-auth>=2.30.0",
     "google-auth-oauthlib>=1.2.0",
     "google-api-python-client>=2.130.0",
