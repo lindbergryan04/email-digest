@@ -1,0 +1,32 @@
+# ── Secrets — NEVER commit (this repo is public) ──────────────────
+.env
+.env.*
+!.env.example
+credentials.json
+client_secret*.json
+tokens/
+.last_run
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual env / uv ──────────────────────────────────────────────
+.venv/
+venv/
+
+# ── OS / editor ───────────────────────────────────────────────────
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ── Local reference (course assignment spec, not part of the tool) ─
+ASSIGNMENT.md
