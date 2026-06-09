@@ -59,18 +59,19 @@ In short, it surfaces **real people and genuine internship correspondence first*
 
 ## Automation (macOS)
 
-The digest is meant to greet you once a day, not to be run by hand. On macOS a small **LaunchAgent** runs it each time you log in — i.e., when you open your laptop in the morning. Because the window is incremental (everything since the last run), logging in more than once a day won't spam you: each run only shows mail you haven't seen yet.
+The digest is meant to greet you once a day, not to be run by hand. On macOS a small **LaunchAgent opens your digest in a fresh Ghostty window each morning** — at 8am, or the first time your laptop wakes after that — so it's the first thing you see when you sit down. It fires once a day, and the incremental window means it only ever shows mail you haven't seen yet.
 
-A ready-to-use agent lives in [`automation/com.email-digest.plist`](automation/com.email-digest.plist). Install it with:
-
-```bash
-cp automation/com.email-digest.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.email-digest.plist
-```
-
-It runs `email-digest` at login (expecting the executable at `~/.local/bin/email-digest`, where `uv tool install` puts it) and appends the digest to `~/.email-digest/digest.log` — adjust the plist to open your terminal of choice if you'd rather it pop up a window. To stop it:
+Set it up once, from a clone of this repo:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.email-digest.plist
+bash automation/install.sh
 ```
+
+That drops a small launcher into `~/.email-digest/`, installs the LaunchAgent, and loads it. Try it immediately with `launchctl start com.email-digest`. To remove it:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.email-digest.plist && rm ~/Library/LaunchAgents/com.email-digest.plist
+```
+
+Prefer a different terminal or time? Edit [`automation/com.email-digest.plist`](automation/com.email-digest.plist) (swap `Ghostty.app`, or change the `StartCalendarInterval` hour) and re-run `install.sh`.
 

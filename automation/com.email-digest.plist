@@ -5,17 +5,23 @@
     <key>Label</key>
     <string>com.email-digest</string>
 
-    <!-- Run the digest at login (i.e. when you open your laptop in the morning).
-         The incremental .last_run window means repeat logins only show new mail. -->
+    <!-- Open the digest in a new Ghostty window at 8am -- or the first time the
+         laptop wakes after 8am. launchd coalesces a missed run into one, so this
+         fires once per day, when you first open your laptop in the morning. -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>"$HOME/.local/bin/email-digest" >> "$HOME/.email-digest/digest.log" 2>&1</string>
+        <string>/usr/bin/open -na Ghostty.app --args -e "$HOME/.email-digest/morning-digest.sh"</string>
     </array>
 
-    <key>RunAtLoad</key>
-    <true/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
 
     <key>StandardErrorPath</key>
     <string>/tmp/email-digest.err</string>
