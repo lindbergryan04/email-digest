@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.email-digest</string>
+
+    <!-- Run the digest at login (i.e. when you open your laptop in the morning).
+         The incremental .last_run window means repeat logins only show new mail. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>"$HOME/.local/bin/email-digest" >> "$HOME/.email-digest/digest.log" 2>&1</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/email-digest.err</string>
+</dict>
+</plist>
