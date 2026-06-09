@@ -1,11 +1,11 @@
 [project]
 name = "email-digest"
-version = "0.1.0"
+version = "0.1.2"
 description = "Pull recent email from your Gmail accounts, triage it with Claude, and print a prioritized terminal digest."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 dependencies = [
-    "anthropic>=0.92.0",
+    "requests>=2",
     "pydantic>=2",
     "google-auth>=2.30.0",
     "google-auth-oauthlib>=1.2.0",

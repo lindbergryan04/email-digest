@@ -1,24 +1,28 @@
-"""Email triage via Claude.
+"""Email triage via Claude's Messages API.
 
-The API call is the one impure edge. Everything around it -- projecting parsed
-emails down to the fields Claude needs, and turning the validated reply into a
-``{id: judgment}`` map -- is plain data work, unit-tested with a mocked client.
+Calls the API directly over HTTP with ``requests`` (which supports Python 3.8)
+rather than the anthropic SDK -- the SDK requires Python >=3.9, which would stop
+this tool from installing into older environments. The request uses
+``output_config`` structured outputs so Claude returns schema-valid JSON, which
+is then validated with Pydantic.
 
-Robustness: ``messages.parse`` validates the reply against ``TriageResult``. If
-the call or validation fails for any reason, ``triage_emails`` returns ``{}`` so
-the caller falls every email back to a safe default and nothing is silently
-dropped. ``max_tokens`` is deliberately generous -- the prototype's 8192 was too
-low and a full inbox truncated the JSON mid-array.
+The HTTP call is the one impure edge: tests inject a fake ``post``. Any failure
+(network, non-200, malformed reply) returns ``{}`` so the caller falls every
+email back to manual review and nothing is dropped. ``max_tokens`` is generous
+-- the prototype's 8192 truncated the JSON on a full inbox.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from typing import Literal
+from typing import List, Literal
 
+import requests
 from pydantic import BaseModel
 
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
 MODEL = "claude-haiku-4-5"
 MAX_TOKENS = 16000
 
@@ -36,7 +40,33 @@ class EmailJudgment(BaseModel):
 
 
 class TriageResult(BaseModel):
-    emails: list[EmailJudgment]
+    emails: List[EmailJudgment]
+
+
+# JSON schema sent to Claude via output_config; mirrors TriageResult.
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "emails": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "importance": {"type": "string", "enum": ["high", "medium", "low", "ignore"]},
+                    "category": {"type": "string", "enum": ["internship", "human", "school", "other"]},
+                    "summary": {"type": "string"},
+                    "is_event": {"type": "boolean"},
+                    "has_free_food": {"type": "boolean"},
+                },
+                "required": ["id", "importance", "category", "summary", "is_event", "has_free_food"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["emails"],
+    "additionalProperties": False,
+}
 
 
 SYSTEM_PROMPT = """You are an email triage assistant for Ryan, a UC San Diego student actively applying to summer internships. Your goal: surface the few emails that need his attention TODAY and ignore everything else. Err on the side of "ignore" -- Ryan would rather miss a borderline FYI than read 30 items.
@@ -88,7 +118,7 @@ D. When in doubt between two adjacent levels, pick the LOWER one. Between "low" 
 CRITICAL OUTPUT REQUIREMENT: Return exactly one entry per input email. Each output entry MUST include the `id` field from its corresponding input email, copied verbatim. Do not merge, deduplicate, or drop any emails. If two emails look identical, still return separate entries for each (just classify both appropriately -- e.g., both can be "ignore")."""
 
 
-def build_triage_input(emails: list[dict]) -> list[dict]:
+def build_triage_input(emails):
     """Project parsed emails down to just the fields Claude triages on."""
     return [
         {
@@ -102,41 +132,55 @@ def build_triage_input(emails: list[dict]) -> list[dict]:
     ]
 
 
-def triage_emails(
-    client,
-    emails: list[dict],
-    *,
-    model: str = MODEL,
-    max_tokens: int = MAX_TOKENS,
-) -> dict[str, dict]:
+def triage_emails(emails, *, api_key, model=MODEL, max_tokens=MAX_TOKENS, post=None):
     """Return ``{email_id: judgment_dict}``.
 
-    Returns ``{}`` on empty input or any API/validation failure -- the caller
-    treats missing ids as "needs manual review" so nothing is dropped.
+    Returns ``{}`` on empty input or any failure -- the caller treats missing
+    ids as "needs manual review" so nothing is dropped. ``post`` defaults to
+    ``requests.post`` and is injected by tests.
     """
     if not emails:
         return {}
 
+    post = post or requests.post
     try:
-        response = client.messages.parse(
-            model=model,
-            max_tokens=max_tokens,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            output_format=TriageResult,
-            messages=[
-                {
-                    "role": "user",
-                    "content": "Triage these emails (JSON array follows):\n\n"
-                    + json.dumps(build_triage_input(emails), indent=2),
-                }
-            ],
+        resp = post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": ANTHROPIC_VERSION,
+                "content-type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": [
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                "output_config": {"format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Triage these emails (JSON array follows):\n\n"
+                        + json.dumps(build_triage_input(emails), indent=2),
+                    }
+                ],
+            },
+            timeout=120,
         )
+        if resp.status_code != 200:
+            print(
+                f"[triage] Claude API returned {resp.status_code}: {resp.text[:500]}",
+                file=sys.stderr,
+            )
+            return {}
+        data = resp.json()
+        text = next(b["text"] for b in data["content"] if b.get("type") == "text")
+        result = TriageResult.model_validate_json(text)
     except Exception as exc:  # noqa: BLE001 -- degrade gracefully on any failure
         print(
             f"[triage] Claude call failed ({exc}); falling back to manual review.",
@@ -144,8 +188,4 @@ def triage_emails(
         )
         return {}
 
-    result = response.parsed_output
-    if result is None:
-        print("[triage] No parsed output; falling back to manual review.", file=sys.stderr)
-        return {}
     return {j.id: j.model_dump() for j in result.emails}

@@ -1,8 +1,8 @@
+import json
 from unittest.mock import MagicMock
 
 from email_digest.triage import (
-    EmailJudgment,
-    TriageResult,
+    OUTPUT_SCHEMA,
     build_triage_input,
     triage_emails,
 )
@@ -23,6 +23,16 @@ def _email(eid, **kw):
     return base
 
 
+def _ok_response(emails_json):
+    """A fake requests.Response carrying the Anthropic Messages API shape."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "content": [{"type": "text", "text": json.dumps({"emails": emails_json})}]
+    }
+    return resp
+
+
 def test_build_triage_input_projects_only_needed_fields():
     out = build_triage_input([_email("1", **{"from": "r@corp.com"}, subject="Hi")])
     assert out == [
@@ -31,43 +41,49 @@ def test_build_triage_input_projects_only_needed_fields():
 
 
 def test_triage_emails_empty_returns_empty_and_skips_api():
-    client = MagicMock()
-    assert triage_emails(client, []) == {}
-    client.messages.parse.assert_not_called()
+    post = MagicMock()
+    assert triage_emails([], api_key="k", post=post) == {}
+    post.assert_not_called()
 
 
 def test_triage_emails_maps_ids_to_judgments():
-    client = MagicMock()
-    client.messages.parse.return_value.parsed_output = TriageResult(
-        emails=[
-            EmailJudgment(id="1", importance="high", category="internship",
-                          summary="interview invite", is_event=False, has_free_food=False),
-            EmailJudgment(id="2", importance="ignore", category="other",
-                          summary="promo", is_event=False, has_free_food=False),
-        ]
-    )
+    post = MagicMock(return_value=_ok_response([
+        {"id": "1", "importance": "high", "category": "internship",
+         "summary": "interview", "is_event": False, "has_free_food": False},
+        {"id": "2", "importance": "ignore", "category": "other",
+         "summary": "promo", "is_event": False, "has_free_food": False},
+    ]))
 
-    judgments = triage_emails(client, [_email("1"), _email("2")])
+    judgments = triage_emails([_email("1"), _email("2")], api_key="test-key", post=post)
 
     assert set(judgments) == {"1", "2"}
     assert judgments["1"]["importance"] == "high"
     assert judgments["1"]["category"] == "internship"
     assert judgments["2"]["importance"] == "ignore"
 
-    client.messages.parse.assert_called_once()
-    _, kwargs = client.messages.parse.call_args
-    assert kwargs["model"] == "claude-haiku-4-5"
-    assert kwargs["output_format"] is TriageResult
-    assert kwargs["max_tokens"] >= 16000
+    post.assert_called_once()
+    url = post.call_args.args[0]
+    body = post.call_args.kwargs["json"]
+    headers = post.call_args.kwargs["headers"]
+    assert url.endswith("/v1/messages")
+    assert body["model"] == "claude-haiku-4-5"
+    assert body["max_tokens"] >= 16000
+    assert body["output_config"]["format"]["schema"] == OUTPUT_SCHEMA
+    assert headers["x-api-key"] == "test-key"
+    assert headers["anthropic-version"]
 
 
-def test_triage_emails_returns_empty_on_api_error():
-    client = MagicMock()
-    client.messages.parse.side_effect = RuntimeError("boom")
-    assert triage_emails(client, [_email("1")]) == {}
+def test_triage_emails_returns_empty_on_http_error():
+    resp = MagicMock()
+    resp.status_code = 500
+    resp.text = "internal error"
+    post = MagicMock(return_value=resp)
+    assert triage_emails([_email("1")], api_key="k", post=post) == {}
 
 
-def test_triage_emails_returns_empty_on_no_parsed_output():
-    client = MagicMock()
-    client.messages.parse.return_value.parsed_output = None
-    assert triage_emails(client, [_email("1")]) == {}
+def test_triage_emails_returns_empty_on_malformed_response():
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"content": []}  # no text block
+    post = MagicMock(return_value=resp)
+    assert triage_emails([_email("1")], api_key="k", post=post) == {}

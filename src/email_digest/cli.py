@@ -128,8 +128,6 @@ def main(argv=None) -> int:
         return _authorize(args.authorize, home)
 
     # Lazy imports: keep --help / --version free of network, secrets, heavy deps.
-    import anthropic
-
     from email_digest import gmail, triage
     from email_digest.formatting import C, format_digest
     from email_digest.timewindow import (
@@ -139,7 +137,8 @@ def main(argv=None) -> int:
         save_last_run,
     )
 
-    if not load_api_key(home):
+    api_key = load_api_key(home)
+    if not api_key:
         print(
             f"ANTHROPIC_API_KEY not set. Put it in {home / '.env'} or export it.",
             file=sys.stderr,
@@ -179,7 +178,7 @@ def main(argv=None) -> int:
             save_last_run(last_run_path, now)
         return 0
 
-    judgments = triage.triage_emails(anthropic.Anthropic(), all_emails)
+    judgments = triage.triage_emails(all_emails, api_key=api_key)
     triaged = assemble_triaged(all_emails, judgments)
     print(format_digest(triaged, hours, datetime.now()))
     if not args.no_save:
