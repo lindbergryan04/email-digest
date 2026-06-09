@@ -7,6 +7,7 @@ from email_digest.cli import (
     assemble_triaged,
     build_parser,
     config_home,
+    load_api_key,
     parse_accounts,
 )
 
@@ -57,3 +58,11 @@ def test_build_parser_defaults():
 def test_version_flag_exits():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--version"])
+
+
+def test_load_api_key_overrides_empty_ambient_value(monkeypatch, tmp_path):
+    # An empty ANTHROPIC_API_KEY already in the environment must NOT shadow the
+    # real value in <home>/.env (regression: load_dotenv needs override=True).
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=test-key-value\n")
+    assert load_api_key(tmp_path) == "test-key-value"

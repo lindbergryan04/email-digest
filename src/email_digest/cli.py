@@ -38,6 +38,18 @@ def config_home() -> Path:
     return Path(os.environ.get("EMAIL_DIGEST_HOME", Path.home() / ".email-digest"))
 
 
+def load_api_key(home: Path) -> str | None:
+    """Load <home>/.env and return the Anthropic API key.
+
+    Uses override=True so an empty ANTHROPIC_API_KEY already present in the
+    environment (common in dev shells) can't shadow the real value in the file.
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv(home / ".env", override=True)
+    return os.getenv("ANTHROPIC_API_KEY")
+
+
 def parse_accounts(value: str) -> list[str]:
     """Split a comma-separated --accounts value into clean account names."""
     return [a.strip() for a in value.split(",") if a.strip()]
@@ -117,7 +129,6 @@ def main(argv=None) -> int:
 
     # Lazy imports: keep --help / --version free of network, secrets, heavy deps.
     import anthropic
-    from dotenv import load_dotenv
 
     from email_digest import gmail, triage
     from email_digest.formatting import C, format_digest
@@ -128,8 +139,7 @@ def main(argv=None) -> int:
         save_last_run,
     )
 
-    load_dotenv(home / ".env")
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    if not load_api_key(home):
         print(
             f"ANTHROPIC_API_KEY not set. Put it in {home / '.env'} or export it.",
             file=sys.stderr,
